@@ -1,0 +1,48 @@
+// TeamPCP Supply Chain Attack — Unified IOC Sweep (FP Filtered)
+// CVE-2026-33634 | CVSS 9.4
+// Defender XDR Custom Detection Rule
+// Rule Name: TeamPCP Supply Chain C2 and Malware IOC Match
+// Severity: High | Category: CommandAndControl | Frequency: 1 hour
+// Author: Ugur Can Ates | Last Updated: 2026-03-25
+
+let SHA256_IOCs = dynamic([
+    "18a24f83e807479438dcab7a1804c51a00dafc1d526698a66e0640d1e5dd671a",
+    "c37c0ae9641d2e5329fcdee847a756bf1140fdb7f0b7c78a40fdc39055e7d926",
+    "0c0d206d5e68c0cf64d57ffa8bc5b1dad54f2dda52f24e96e02e237498cb9c3a",
+    "61ff00a81b19624adaad425b9129ba2f312f4ab76fb5ddc2c628a5037d31a4ba",
+    "f398f06eefcd3558c38820a397e3193856e4e6e7c67f81ecc8e533275284b152",
+    "7df6cef7ab9aae2ea08f2f872f6456b5d51d896ddda907a238cd6668ccdc4bb7",
+    "5e2ba7c4c53fa6e0cef58011acdd50682cf83fb7b989712d2fcf1b5173bad956"
+]);
+let IP_IOCs = dynamic(["83.142.209.11", "45.148.10.212"]);
+let Domain_IOCs = dynamic([
+    "checkmarx.zone", "aquasecurtiy.org", "litellm.cloud",
+    "tdtqy-oyaaa-aaaae-af2dq-cai.raw.icp0.io"
+]);
+let URL_IOCs = dynamic([
+    "checkmarx.zone/static/checkmarx-util-1.0.4.tgz",
+    "checkmarx.zone/vsx",
+    "checkmarx.zone/raw",
+    "tdtqy-oyaaa-aaaae-af2dq-cai.raw.icp0.io"
+]);
+DeviceFileEvents
+| where Timestamp > ago(30d)
+| where SHA256 in (SHA256_IOCs)
+| extend Source = "FileHash", Detail = strcat(FileName, " | SHA256: ", SHA256)
+| project Timestamp, DeviceName, Source, Detail
+| union (
+    DeviceNetworkEvents
+    | where Timestamp > ago(30d)
+    | where RemoteIP in (IP_IOCs) or RemoteUrl has_any (Domain_IOCs) or RemoteUrl has_any (URL_IOCs)
+    | extend Source = "Network", Detail = strcat(RemoteUrl, " | ", RemoteIP, ":", RemotePort)
+    | project Timestamp, DeviceName, Source, Detail
+)
+| union (
+    DeviceEvents
+    | where Timestamp > ago(30d)
+    | where ActionType == "DnsQueryResponse"
+    | where AdditionalFields has_any (Domain_IOCs)
+    | extend Source = "DNS", Detail = AdditionalFields
+    | project Timestamp, DeviceName, Source, Detail
+)
+| sort by Timestamp desc
